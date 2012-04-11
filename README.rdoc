@@ -3,3 +3,34 @@
 Simple xmpp bot for MUC.
 
 Docs coming soon :)
+
+= How to use
+
+= Setup
+
+Be a nice person and create options.yml file in root repo directory. Put there something like this:
+
+  ---
+  :login: sweet_login
+  :server: 'jabbim.cz'
+  :pass: 'admin1'
+  :bot_name: "supadupatron"
+  :room: "suparoom()@conf.netlab.cz"
+
+= Running
+
+Execute
+
+  ruby lib/start_xmpp_chat_bot.rb
+
+= What it does?
+
+* ping! google.pl - ping host
+* <bot name>: df - disk usage
+* <bot name>: ps - 5 most cpu intensive procs
+* <bot name>: start_time - reverse of uptime
+* <bot name>: stats - msg and bytes stats by everyony on chat
+
+= And...
+
+Type url and bot will give you title of this page. Type url to image and you will get size of this image.

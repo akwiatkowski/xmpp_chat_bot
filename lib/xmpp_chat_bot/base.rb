@@ -11,6 +11,8 @@ require 'net/https'
 
 require 'iconv'
 
+require 'yaml'
+
 module XmppChatBot
   class Base
 
@@ -25,8 +27,13 @@ module XmppChatBot
 
       @url_regexp = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
       @command_regexp = /#{@options[:bot_name]}:\s*(\w+)/
+      @ping_regexp = /ping! ([^\s]+)/
 
       @iconv = ic_ignore = Iconv.new('UTF-8//IGNORE', 'UTF-8')
+
+      @start_time = Time.now
+      @stats_msg = Hash.new
+      @stats_msg_length = Hash.new
     end
 
 
@@ -59,7 +66,9 @@ module XmppChatBot
 
       register_url_spy
       register_simple_commands
-
+      register_ping_command
+      
+      register_msg_stats
 
       EM.run { @bc.run }
 
@@ -84,29 +93,60 @@ module XmppChatBot
       end
     end
 
-    # register simple commands
-    def register_simple_commands
-      @bc.register_handler :message, :groupchat?, :body => @command_regexp do |m|
-        if m.body.to_s =~ @command_regexp
-          command = $1.to_s.strip
-          puts "command '#{command}'"
+    # register ping
+    def register_ping_command
+      @bc.register_handler :message, :groupchat?, :body => @ping_regexp do |m|
+        if m.body.to_s =~ @ping_regexp
+          url = $1.to_s.strip
+          res = `ping -c 3 #{url}`
 
           n = Blather::Stanza::Message.new
           n.to = @options[:room]
           n.type = :groupchat
-          n.body = "command #{command}\n" + process_command(command)
+          n.body = "ping to #{url} result:\n#{res}"
           @bc.write n
 
         end
       end
     end
 
-    def process_command(command)
+    # register simple commands
+    def register_simple_commands
+      @bc.register_handler :message, :groupchat?, :body => @command_regexp do |m|
+        if m.body.to_s =~ @command_regexp
+          command = $1.to_s.strip
+          short_nick = m.from.to_s[/([^\/]*)$/]
+          puts "command '#{command}'"
+
+          n = Blather::Stanza::Message.new
+          n.to = @options[:room]
+          n.type = :groupchat
+          n.body = "command #{command}\n" + process_command(command, short_nick)
+          @bc.write n
+
+        end
+      end
+    end
+
+    def register_msg_stats
+      @bc.register_handler :message, :groupchat? do |m|
+        short_nick = m.from.to_s[/([^\/]*)$/]
+        @stats_msg[short_nick] = @stats_msg[short_nick].to_i + 1
+        @stats_msg_length[short_nick] = @stats_msg[short_nick].to_i + m.body.to_s.size
+      end
+
+    end
+
+    def process_command(command, from = 'nobody')
       return case command.to_s
                when 'df' then
                  `df -hl -x tmpfs`.to_s
                when 'ps' then
-                 `ps -e -o pcpu,ruser,args|sort -nr|grep -v %CPU|head -10`
+                 `ps -e -o pcpu,ruser,args|sort -nr|grep -v %CPU|head -5`
+               when 'start_time' then
+                 @start_time.to_s
+               when 'stats', 'stats2' then
+                 stats_to_s
                else
                  'command not available'
              end
@@ -151,8 +191,6 @@ module XmppChatBot
         puts e.inspect
       end
 
-      puts desc
-
       return {
         :title => title,
         :size => size,
@@ -168,6 +206,14 @@ module XmppChatBot
 
       req = Net::HTTP.new(host, 80)
       return req.request_head(path)['Content-Length'].to_i
+    end
+
+    def stats_to_s
+      s = ""
+      @stats_msg.keys.sort.each do |k|
+        s += "#{k} - #{@stats_msg[k]}/#{@stats_msg_length[k]}\n"
+      end
+      return s
     end
 
   end
