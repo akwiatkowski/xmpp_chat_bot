@@ -1,7 +1,18 @@
 $:.unshift(File.dirname(__FILE__))
 
+require 'rubygems'
+require 'blather/client/client'
+require 'eventmachine'
+
+require 'open-uri'
+
+require 'iconv'
+
 module XmppChatBot
   class Base
+
+    URL_OPEN_MAX_SIZE = 200 * 1024
+
 
     def initialize(_options)
       @options = _options
@@ -12,15 +23,6 @@ module XmppChatBot
 
 
     def start_bot
-      puts @options[:jid]
-
-
-      require 'rubygems'
-      require 'blather/client/client'
-      require 'eventmachine'
-
-      #EventMachine.run
-
       @bc = Blather::Client.setup @options[:jid], @options[:pass]
 
       # Auto approve subscription requests
@@ -51,32 +53,41 @@ module XmppChatBot
       @bc.register_handler :message, :groupchat?, :body => @url_regexp do |m|
         if not m.from.to_s[/#{@options[:bot_name]}/]
           url = m.body.to_s[@url_regexp]
+          short_nick = m.from.to_s[/([^\/]*)$/]
+
+          processed_url = process_url(url)
+
           n = Blather::Stanza::Message.new
           n.to = @options[:room]
           n.type = :groupchat
-          n.body = "#{m.from} added #{url}"
+          #n.body = "#{m.from} added #{url}"
+          n.body = processed_url[:title].to_s
           @bc.write n
         end
       end
-
-      # ----------------
-
-      #when_ready do
-      #
-      #end
-      #
-      #
-      #
-      #    _content = m.body
-      #
-      #
-      #
-      #end
 
       EM.run { @bc.run }
 
     end
 
+    def process_url(url)
+      resource = open(url)
+      str = resource.read(URL_OPEN_MAX_SIZE)
+
+      ic_ignore = Iconv.new('UTF-8//IGNORE', 'UTF-8')
+      str = ic_ignore.iconv(str)
+
+      title_regexp = /<title>([^<]*)<\/title>/i
+      title = str[title_regexp]
+      title ||= 'no title today, sorry :('
+      title.gsub!(/\s/, ' ')
+
+      puts title
+      
+      return {
+        :title => title
+      }
+    end
 
   end
 end
