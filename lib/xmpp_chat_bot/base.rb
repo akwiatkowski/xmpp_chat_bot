@@ -17,6 +17,8 @@ module XmppChatBot
   class Base
 
     URL_OPEN_MAX_SIZE = 200 * 1024
+    SAVE_STATS_INTERVAL = 10
+    STATS_FILENAME = 'stats.yml'
 
 
     def initialize(_options)
@@ -31,9 +33,14 @@ module XmppChatBot
 
       @iconv = ic_ignore = Iconv.new('UTF-8//IGNORE', 'UTF-8')
 
-      @start_time = Time.now
-      @stats_msg = Hash.new
-      @stats_msg_length = Hash.new
+      load_stats
+
+      # do not process history messages
+      @start_after = Time.now + 5
+    end
+
+    def ready?
+      Time.now > @start_after
     end
 
 
@@ -67,17 +74,16 @@ module XmppChatBot
       register_url_spy
       register_simple_commands
       register_ping_command
-      
+
       register_msg_stats
 
       EM.run { @bc.run }
-
     end
 
     # register handle for checking urls
     def register_url_spy
       @bc.register_handler :message, :groupchat?, :body => @url_regexp do |m|
-        if not m.from.to_s[/#{@options[:bot_name]}/]
+        if ready? and not m.from.to_s[/#{@options[:bot_name]}/]
           url = m.body.to_s[@url_regexp]
           short_nick = m.from.to_s[/([^\/]*)$/]
 
@@ -87,7 +93,8 @@ module XmppChatBot
           n.to = @options[:room]
           n.type = :groupchat
           #n.body = "#{m.from} added #{url}"
-          n.body = processed_url[:desc].to_s
+          #n.body = processed_url[:desc].to_s
+          n.xhtml = processed_url[:desc].to_s
           @bc.write n
         end
       end
@@ -96,7 +103,7 @@ module XmppChatBot
     # register ping
     def register_ping_command
       @bc.register_handler :message, :groupchat?, :body => @ping_regexp do |m|
-        if m.body.to_s =~ @ping_regexp
+        if ready? and m.body.to_s =~ @ping_regexp
           url = $1.to_s.strip
           res = `ping -c 3 #{url}`
 
@@ -113,7 +120,7 @@ module XmppChatBot
     # register simple commands
     def register_simple_commands
       @bc.register_handler :message, :groupchat?, :body => @command_regexp do |m|
-        if m.body.to_s =~ @command_regexp
+        if ready? and m.body.to_s =~ @command_regexp
           command = $1.to_s.strip
           short_nick = m.from.to_s[/([^\/]*)$/]
           puts "command '#{command}'"
@@ -130,9 +137,28 @@ module XmppChatBot
 
     def register_msg_stats
       @bc.register_handler :message, :groupchat? do |m|
-        short_nick = m.from.to_s[/([^\/]*)$/]
-        @stats_msg[short_nick] = @stats_msg[short_nick].to_i + 1
-        @stats_msg_length[short_nick] = @stats_msg[short_nick].to_i + m.body.to_s.size
+        if ready?
+
+          short_nick = m.from.to_s[/([^\/]*)$/]
+          current_day = Time.now.strftime("%Y-%m-%d")
+          body_size = m.body.to_s.size
+
+          if not short_nick == @options[:bot_name]
+            # bots msg are not used for stats
+
+            @stats[short_nick] ||= Hash.new
+            h = @stats[short_nick]
+            h[:lines] = h[:lines].to_i + 1
+            h[:bytes] = h[:bytes].to_i + body_size
+            h[:by_day] ||= Hash.new
+            h[:by_day][current_day] ||= Hash.new
+            h[:by_day][current_day][:lines] = h[:by_day][current_day][:lines].to_i + 1
+            h[:by_day][current_day][:bytes] = h[:by_day][current_day][:bytes].to_i + body_size
+
+          end
+
+          save_stats_if_needed
+        end
       end
 
     end
@@ -159,6 +185,8 @@ module XmppChatBot
       if size < URL_OPEN_MAX_SIZE
         resource = open(url)
         str = resource.read(URL_OPEN_MAX_SIZE)
+        # sometime header doesn't has this
+        size = str.size if str.size > size
       else
         str = ""
       end
@@ -169,7 +197,8 @@ module XmppChatBot
       # image
       if url =~ /(.+(jpg|png|gif|bmp))/i
         puts "image #{url}"
-        desc = "image file size #{size}"
+        desc = "[image file size #{readable_file_size(size)}]"
+        desc = "<i>#{desc}</i>"
       end
 
       begin
@@ -184,8 +213,9 @@ module XmppChatBot
       begin
         if str =~ title_regexp
           title = $1.to_s
-          title = title.gsub(/\s/, ' ').strip
-          desc += title
+          title = title.gsub(/&[^;]*;/, "_").gsub(/\s/, ' ').strip
+          desc = "[#{title} (size #{readable_file_size(size)})]"
+          desc = "<i>#{desc}</i>"
         end
       rescue => e
         puts e.inspect
@@ -209,11 +239,61 @@ module XmppChatBot
     end
 
     def stats_to_s
-      s = ""
-      @stats_msg.keys.sort.each do |k|
-        s += "#{k} - #{@stats_msg[k]}/#{@stats_msg_length[k]}\n"
+      stats = ""
+      stats += "first start time #{@stats[:system][:start_time].first.to_s_timedate}, starts #{@stats[:system][:start_time].size}\n"
+      stats += "people stats:\n"
+      @stats.keys.each do |k|
+        unless k == :system
+          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat\n"
+        end
       end
-      return s
+      return stats
+    end
+
+    def save_stats_if_needed
+      if Time.now.to_i - @save_stats_time.to_i > SAVE_STATS_INTERVAL
+        save_stats
+      end
+    end
+
+    def save_stats
+      File.rename(STATS_FILENAME, "#{STATS_FILENAME}.old") if File.exists?(STATS_FILENAME)
+      File.open(STATS_FILENAME, 'w') do |f|
+        f.puts @stats.to_yaml
+      end
+      @save_stats_time = Time.now
+    end
+
+    def load_stats
+      @stats = YAML::load(File.open('stats.yml')) if File.exists? STATS_FILENAME
+
+      @stats ||= Hash.new
+      @stats[:system] ||= Hash.new
+      @stats[:system][:start_time] ||= Array.new
+      @stats[:system][:start_time] << Time.now
+    end
+
+    GIGA_SIZE = 1073741824.0
+    MEGA_SIZE = 1048576.0
+    KILO_SIZE = 1024.0
+
+    def readable_file_size(size, precision = 1)
+      case
+        when size == 1
+        then
+          "1 Byte"
+        when size < KILO_SIZE
+        then
+          "%d Bytes" % size
+        when size < MEGA_SIZE
+        then
+          "%.#{precision}f KB" % (size / KILO_SIZE)
+        when size < GIGA_SIZE
+        then
+          "%.#{precision}f MB" % (size / MEGA_SIZE)
+        else
+          "%.#{precision}f GB" % (size / GIGA_SIZE)
+      end
     end
 
   end
