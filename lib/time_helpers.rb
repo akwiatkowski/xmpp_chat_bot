@@ -8,6 +8,6 @@ class Time
   end
 
   def to_s_date
-    self.strftime("%H:%M")
+    self.strftime("%Y.%m.%d")
   end
 end
