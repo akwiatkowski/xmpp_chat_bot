@@ -8,6 +8,7 @@ require 'open-uri'
 require 'uri'
 require 'net/http'
 require 'net/https'
+require 'timeout'
 
 require 'iconv'
 
@@ -180,52 +181,62 @@ module XmppChatBot
 
     # process single url
     def process_url(url)
-      size = get_uri_size(url)
-
-      if size < URL_OPEN_MAX_SIZE
-        resource = open(url)
-        str = resource.read(URL_OPEN_MAX_SIZE)
-        # sometime header doesn't has this
-        size = str.size if str.size > size
-      else
-        str = ""
-      end
-
-      # final description
-      desc = ""
-
-      # image
-      if url =~ /(.+(jpg|png|gif|bmp))/i
-        puts "image #{url}"
-        desc = "[image file size #{readable_file_size(size)}]"
-        desc = "<i>#{desc}</i>"
-      end
-
       begin
-        str = @iconv.iconv(str)
-      rescue
-        # omg, it is not html
-      end
+        Timeout::timeout(2) do
+          size = get_uri_size(url)
 
-      # searching for title
-      title_regexp = /<title>([^<]*)<\/title>/i
-      title = 'no title today, sorry :('
-      begin
-        if str =~ title_regexp
-          title = $1.to_s
-          title = title.gsub(/&[^;]*;/, "_").gsub(/\s/, ' ').strip
-          desc = "[#{title} (size #{readable_file_size(size)})]"
-          desc = "<i>#{desc}</i>"
+          if size < URL_OPEN_MAX_SIZE
+            resource = open(url)
+            str = resource.read(URL_OPEN_MAX_SIZE)
+            # sometime header doesn't has this
+            size = str.size if str.size > size
+          else
+            str = ""
+          end
+
+          # final description
+          desc = ""
+
+          # image
+          if url =~ /(.+(jpg|png|gif|bmp))/i
+            puts "image #{url}"
+            desc = "[image file size #{readable_file_size(size)}]"
+            desc = "<i>#{desc}</i>"
+          end
+
+          begin
+            str = @iconv.iconv(str)
+          rescue
+            # omg, it is not html
+          end
+
+          # searching for title
+          title_regexp = /<title>([^<]*)<\/title>/i
+          title = 'no title today, sorry :('
+          begin
+            if str =~ title_regexp
+              title = $1.to_s
+              title = title.gsub(/&[^;]*;/, "_").gsub(/\s/, ' ').strip
+              desc = "[#{title} (size #{readable_file_size(size)})]"
+              desc = "<i>#{desc}</i>"
+            end
+          rescue => e
+            puts e.inspect
+          end
+
+          return {
+            :title => title,
+            :size => size,
+            :desc => desc
+          }
         end
-      rescue => e
-        puts e.inspect
+      rescue
+        return {
+          :title => '(timeout)',
+          :size => 1,
+          :desc => "(timeout)"
+        }
       end
-
-      return {
-        :title => title,
-        :size => size,
-        :desc => desc
-      }
     end
 
     # hope it works
