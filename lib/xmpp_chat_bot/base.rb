@@ -20,6 +20,7 @@ module XmppChatBot
     URL_OPEN_MAX_SIZE = 200 * 1024
     SAVE_STATS_INTERVAL = 10
     STATS_FILENAME = 'stats.yml'
+    HTTP_TIMEOUT = 5
 
 
     def initialize(_options)
@@ -34,6 +35,7 @@ module XmppChatBot
 
       @iconv = ic_ignore = Iconv.new('UTF-8//IGNORE', 'UTF-8')
 
+      store_pid
       load_stats
 
       # do not process history messages
@@ -182,7 +184,7 @@ module XmppChatBot
     # process single url
     def process_url(url)
       begin
-        Timeout::timeout(2) do
+        Timeout::timeout(HTTP_TIMEOUT) do
           size = get_uri_size(url)
 
           if size < URL_OPEN_MAX_SIZE
@@ -305,6 +307,13 @@ module XmppChatBot
         else
           "%.#{precision}f GB" % (size / GIGA_SIZE)
       end
+    end
+
+    def store_pid
+      pid = Process.pid
+      f = File.new("xmpp_chat_bot.pid", "w")
+      f.puts(pid)
+      f.close
     end
 
   end
