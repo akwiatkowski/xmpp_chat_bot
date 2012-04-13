@@ -39,7 +39,7 @@ module XmppChatBot
       load_stats
 
       # do not process history messages
-      @start_after = Time.now + 5
+      @start_after = Time.now + 1
     end
 
     def ready?
