@@ -46,6 +46,10 @@ module XmppChatBot
       Time.now > @start_after
     end
 
+    def xhtml?
+      @options[:xhtml] == true
+    end
+
 
     def start_bot
       @bc = Blather::Client.setup @options[:jid], @options[:pass]
@@ -95,9 +99,13 @@ module XmppChatBot
           n = Blather::Stanza::Message.new
           n.to = @options[:room]
           n.type = :groupchat
-          #n.body = "#{m.from} added #{url}"
-          #n.body = processed_url[:desc].to_s
-          n.xhtml = processed_url[:desc].to_s
+
+          if xhtml?
+            n.xhtml = processed_url[:desc].to_s
+          else
+            n.body = processed_url[:desc].to_s
+          end
+
           @bc.write n
         end
       end
@@ -203,7 +211,7 @@ module XmppChatBot
           if url =~ /(.+(jpg|png|gif|bmp))/i
             puts "image #{url}"
             desc = "[image file size #{readable_file_size(size)}]"
-            desc = "<i>#{desc}</i>"
+            desc = "<i>#{desc}</i>" if xhtml?
           end
 
           begin
@@ -220,7 +228,7 @@ module XmppChatBot
               title = $1.to_s
               title = title.gsub(/&[^;]*;/, "_").gsub(/\s/, ' ').strip
               desc = "[#{title} (size #{readable_file_size(size)})]"
-              desc = "<i>#{desc}</i>"
+              desc = "<i>#{desc}</i>" if xhtml?
             end
           rescue => e
             puts e.inspect

@@ -16,6 +16,8 @@ Be a nice person and create options.yml file in root repo directory. Put there s
   :pass: 'admin1'
   :bot_name: "supadupatron"
   :room: "suparoom()@conf.netlab.cz"
+  # do you want to use xhtml with nice italic fonts?
+  :xhtml: false
 
 = Running
 
