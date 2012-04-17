@@ -21,6 +21,7 @@ module XmppChatBot
     SAVE_STATS_INTERVAL = 10
     STATS_FILENAME = 'stats.yml'
     HTTP_TIMEOUT = 5
+    NO_PROCESS_TIME = 2
 
 
     def initialize(_options)
@@ -39,7 +40,7 @@ module XmppChatBot
       load_stats
 
       # do not process history messages
-      @start_after = Time.now + 1
+      @start_after = Time.now + NO_PROCESS_TIME
     end
 
     def ready?
@@ -152,19 +153,26 @@ module XmppChatBot
 
           short_nick = m.from.to_s[/([^\/]*)$/]
           current_day = Time.now.strftime("%Y-%m-%d")
-          body_size = m.body.to_s.size
+          body_msg = m.body.to_s
+          body_size = body_msg.size
 
           if not short_nick == @options[:bot_name]
             # bots msg are not used for stats
+
+            vulgar = BotAddons.vulgar?(body_msg)
+            puts "-- VULGAR #{body_msg}" if vulgar
 
             @stats[short_nick] ||= Hash.new
             h = @stats[short_nick]
             h[:lines] = h[:lines].to_i + 1
             h[:bytes] = h[:bytes].to_i + body_size
+            h[:vulgar] = h[:vulgar].to_i + 1 if vulgar
+
             h[:by_day] ||= Hash.new
             h[:by_day][current_day] ||= Hash.new
             h[:by_day][current_day][:lines] = h[:by_day][current_day][:lines].to_i + 1
             h[:by_day][current_day][:bytes] = h[:by_day][current_day][:bytes].to_i + body_size
+            h[:by_day][current_day][:vulgar] = h[:by_day][current_day][:vulgar].to_i + 1 if vulgar
 
           end
 
@@ -265,7 +273,7 @@ module XmppChatBot
       stats += "people stats:\n"
       @stats.keys.each do |k|
         unless k == :system
-          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat\n"
+          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat, vulgars #{@stats[k][:vulgar].to_s}\n"
         end
       end
       return stats
