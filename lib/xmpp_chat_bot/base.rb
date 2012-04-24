@@ -11,6 +11,7 @@ require 'net/https'
 require 'timeout'
 
 require 'iconv'
+require 'base64'
 
 require 'yaml'
 
@@ -33,6 +34,7 @@ module XmppChatBot
       @url_regexp = /(ftp|http|https):\/\/(\w+:{0,1}\w*@)?(\S+)(:[0-9]+)?(\/|\/([\w#!:.?+=&%@!\-\/]))?/
       @command_regexp = /#{@options[:bot_name]}:\s*(\w+)/
       @ping_regexp = /ping! ([^\s]+)/
+      @note_regexp = /note! (.*)$/
 
       @iconv = ic_ignore = Iconv.new('UTF-8//IGNORE', 'UTF-8')
 
@@ -82,6 +84,7 @@ module XmppChatBot
       register_url_spy
       register_simple_commands
       register_ping_command
+      register_note_command
 
       register_msg_stats
 
@@ -129,6 +132,32 @@ module XmppChatBot
       end
     end
 
+    # adding notes
+    def register_note_command
+      @bc.register_handler :message, :groupchat?, :body => @note_regexp do |m|
+        if ready? and m.body.to_s =~ @note_regexp
+          note = $1.to_s.strip
+          res = "note added '#{note}'"
+          short_nick = m.from.to_s[/([^\/]*)$/]
+
+          n = Blather::Stanza::Message.new
+          n.to = @options[:room]
+          n.type = :groupchat
+          n.body = res
+          @bc.write n
+
+          h = @stats[short_nick]
+          h[:notes] = Array.new if h[:notes].nil?
+          h[:notes] << {
+            :note => note,
+            :time => Time.now
+          }
+
+          save_stats_if_needed
+        end
+      end
+    end
+
     # register simple commands
     def register_simple_commands
       @bc.register_handler :message, :groupchat?, :body => @command_regexp do |m|
@@ -159,27 +188,26 @@ module XmppChatBot
           if not short_nick == @options[:bot_name]
             # bots msg are not used for stats
 
-            vulgar = BotAddons.vulgar?(body_msg)
-            puts "-- VULGAR #{body_msg}" if vulgar
+            vulgar_level = BotAddons.vulgar_level(body_msg)
+            puts "-- VULGAR '#{body_msg}' level #{vulgar_level}" if vulgar_level > 0
 
             @stats[short_nick] ||= Hash.new
             h = @stats[short_nick]
             h[:lines] = h[:lines].to_i + 1
             h[:bytes] = h[:bytes].to_i + body_size
-            h[:vulgar] = h[:vulgar].to_i + 1 if vulgar
+            h[:vulgar] = h[:vulgar].to_i + 1 if vulgar_level > 0
 
             h[:by_day] ||= Hash.new
             h[:by_day][current_day] ||= Hash.new
             h[:by_day][current_day][:lines] = h[:by_day][current_day][:lines].to_i + 1
             h[:by_day][current_day][:bytes] = h[:by_day][current_day][:bytes].to_i + body_size
-            h[:by_day][current_day][:vulgar] = h[:by_day][current_day][:vulgar].to_i + 1 if vulgar
+            h[:by_day][current_day][:vulgar] = h[:by_day][current_day][:vulgar].to_i + vulgar_level if vulgar_level > 0
 
           end
 
           save_stats_if_needed
         end
       end
-
     end
 
     def process_command(command, from = 'nobody')
@@ -192,9 +220,52 @@ module XmppChatBot
                  @start_time.to_s
                when 'stats', 'stats2' then
                  stats_to_s
+               when 'stats64' then
+                 Base64.encode64(@stats.to_yaml)
+               when 'paranoid' then
+                 engage_paranoid_mode(false)
+               when 'paranoid2' then
+                 engage_paranoid_mode(true)
+               when 'ponies', 'pony' then
+                 'ponies are not allowed here!'
+               when 'notes' then
+                 get_notes(from)
                else
                  'command not available'
              end
+    end
+
+    def get_notes(from)
+      str = "notes: \n"
+      begin
+        notes = @stats[from][:notes]
+        notes.each do |note|
+          str += "* [#{note[:time].to_s_timedate}] - #{note[:note]}\n"
+        end
+      rescue
+        str += "error\n"
+      end
+      return str
+    end
+
+    # Fill chat with safe strings
+    def engage_paranoid_mode(safe = false)
+      15.times do
+        if safe
+          body = Base64.encode(Time.now.to_f.to_s + Time.now.to_s)
+        else
+          body = "We love our government and taxes are awesome! :)"
+        end
+
+        n = Blather::Stanza::Message.new
+        n.to = @options[:room]
+        n.type = :groupchat
+        n.body = body
+        @bc.write n
+
+        sleep 0.15
+      end
+      return "done"
     end
 
     # process single url
@@ -273,7 +344,9 @@ module XmppChatBot
       stats += "people stats:\n"
       @stats.keys.each do |k|
         unless k == :system
-          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat, vulgars #{@stats[k][:vulgar].to_s}\n"
+          v_string = ""
+          v_string = "vulgars #{@stats[k][:vulgar].to_s}" if @stats[k][:vulgar].to_i > 0
+          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat #{v_string}\n"
         end
       end
       return stats
