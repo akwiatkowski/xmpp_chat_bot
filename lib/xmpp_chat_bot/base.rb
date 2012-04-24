@@ -238,7 +238,9 @@ module XmppChatBot
     def get_notes(from)
       str = "notes: \n"
       begin
-        notes = @stats[from][:notes]
+        s = @stats[from]
+        s[:notes] = Array.new if s[:notes].nil?
+        notes = s[:notes]
         notes.each do |note|
           str += "* [#{note[:time].to_s_timedate}] - #{note[:note]}\n"
         end
