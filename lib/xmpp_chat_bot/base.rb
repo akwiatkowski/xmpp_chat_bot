@@ -22,7 +22,7 @@ module XmppChatBot
     SAVE_STATS_INTERVAL = 10
     STATS_FILENAME = 'stats.yml'
     HTTP_TIMEOUT = 5
-    NO_PROCESS_TIME = 2
+    NO_PROCESS_TIME = 5
 
 
     def initialize(_options)
@@ -347,8 +347,14 @@ module XmppChatBot
       @stats.keys.each do |k|
         unless k == :system
           v_string = ""
-          v_string = "vulgars #{@stats[k][:vulgar].to_s}" if @stats[k][:vulgar].to_i > 0
-          stats += "* #{k} - #{@stats[k][:lines]} lines, #{@stats[k][:bytes]} bytes, #{@stats[k][:by_day].keys.size} days on chat #{v_string}\n"
+          v_string += ", vulgars #{@stats[k][:vulgar].to_s}" if @stats[k][:vulgar].to_i > 0
+
+          if @stats[k][:vulgar].to_i > 0 and @stats[k][:bytes] > 0
+            vulgarity = (@stats[k][:vulgar] * 1000.0 * 100.0 / @stats[k][:bytes]).round / 100.0
+            v_string += ", vulgar/kB #{vulgarity}"
+          end
+
+          stats += "* #{k} - #{@stats[k][:lines]} lines, #{readable_file_size(@stats[k][:bytes])} bytes, #{@stats[k][:by_day].keys.size} days on chat #{v_string}\n"
         end
       end
       return stats
@@ -385,10 +391,10 @@ module XmppChatBot
       case
         when size == 1
         then
-          "1 Byte"
+          "1 B"
         when size < KILO_SIZE
         then
-          "%d Bytes" % size
+          "%d B" % size
         when size < MEGA_SIZE
         then
           "%.#{precision}f KB" % (size / KILO_SIZE)
