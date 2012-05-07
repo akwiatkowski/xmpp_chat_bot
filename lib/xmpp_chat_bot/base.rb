@@ -354,7 +354,7 @@ module XmppChatBot
             v_string += ", vulgar/kB #{vulgarity}"
           end
 
-          stats += "* #{k} - #{@stats[k][:lines]} lines, #{readable_file_size(@stats[k][:bytes])} bytes, #{@stats[k][:by_day].keys.size} days on chat #{v_string}\n"
+          stats += "* #{k} - #{@stats[k][:lines]} lines, #{readable_file_size(@stats[k][:bytes])}, #{@stats[k][:by_day].keys.size} days on chat #{v_string}\n"
         end
       end
       return stats
